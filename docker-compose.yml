@@ -1,0 +1,190 @@
+# ============================================
+# DOCKER COMPOSE - NETTSIDE CRM
+# ============================================
+# Infrastructure services for local development and testing
+# Includes PostgreSQL, MongoDB, Redis, and management UIs
+#
+# Author: Alex Coronell
+# Date: 2026-02-07
+# Version: 1.0.0
+
+services:
+  # ============================================
+  # POSTGRESQL - Main Transactional Database
+  # ============================================
+  postgres:
+    image: postgres:16
+    container_name: nettside-crm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nettside_crm
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      # Persistent data storage
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - nettside-crm-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nettside_crm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================
+  # POSTGRESQL - Test Database (E2E)
+  # ============================================
+  postgres-test:
+    image: postgres:16
+    container_name: nettside-crm-postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nettside_crm_test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test123
+    ports:
+      - "5433:5432"
+    networks:
+      - nettside-crm-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d nettside_crm_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============================================
+  # MONGODB - Chat and Operational Data
+  # ============================================
+  mongodb:
+    image: mongo:7
+    container_name: nettside-crm-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: nettside_chat
+    ports:
+      - "27017:27017"
+    volumes:
+      # Persistent data storage
+      - mongodb_data:/data/db
+      # MongoDB configuration backup
+      - mongodb_config:/data/configdb
+    networks:
+      - nettside-crm-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================
+  # REDIS - Caching and Session Storage
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: nettside-crm-redis
+    restart: unless-stopped
+    command: redis-server --requirepass redis123 --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - nettside-crm-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ============================================
+  # PGADMIN - PostgreSQL Management UI
+  # ============================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: nettside-crm-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@nettside-crm.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      # Pre-configured servers
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json
+    networks:
+      - nettside-crm-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ============================================
+  # MONGO EXPRESS - MongoDB Management UI
+  # ============================================
+  mongo-express:
+    image: mongo-express:latest
+    container_name: nettside-crm-mongo-express
+    restart: unless-stopped
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin123
+    ports:
+      - "8081:8081"
+    networks:
+      - nettside-crm-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  # ============================================
+  # REDIS COMMANDER - Redis Management UI
+  # ============================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: nettside-crm-redis-commander
+    restart: unless-stopped
+    environment:
+      REDIS_HOSTS: local:redis:6379:0:redis123
+    ports:
+      - "8082:8081"
+    networks:
+      - nettside-crm-network
+    depends_on:
+      redis:
+        condition: service_healthy
+
+# ============================================
+# VOLUMES - Persistent Storage
+# ============================================
+volumes:
+  postgres_data:
+    driver: local
+    name: nettside-crm-postgres-data
+  mongodb_data:
+    driver: local
+    name: nettside-crm-mongodb-data
+  mongodb_config:
+    driver: local
+    name: nettside-crm-mongodb-config
+  redis_data:
+    driver: local
+    name: nettside-crm-redis-data
+  pgadmin_data:
+    driver: local
+    name: nettside-crm-pgadmin-data
+
+# ============================================
+# NETWORKS
+# ============================================
+networks:
+  nettside-crm-network:
+    driver: bridge
+    name: nettside-crm-network
